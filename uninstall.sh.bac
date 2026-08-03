@@ -1,0 +1,72 @@
+device_config set_sync_disabled_for_tests none
+
+sm fstrim
+sm idle-maint run
+sm defragment run
+
+for a in $(cmd package list packages | cut -d ":" -f2);do
+pm log-visibility --enable $a
+done
+
+for a in $(cmd package list packages -s | cut -d ":" -f2);do
+am standby-bucket active $a
+am set-bg-restriction-level $a unrestricted
+am service-restart-backoff enable $a
+am kill $a
+appops reset $a
+done
+
+settings put system POWER_PERFORMANCE_MODE_OPEN 0
+settings put system power_save_type_performance 0
+settings put secure breathe_gamemode_enabled 0
+settings put system speed_mode 0
+settings put secure speed_mode_enable 0
+
+for a in $(cmd package list packages -s|cut -f2 -d:); do
+cmd media.audio_policy set-uid-state $a active --user 0
+cmd app_hibernation set-state --global false $a
+done
+
+cmd set-stop-user-on-switch true
+am clear-watch-heap all
+am untrack-associations
+cmd wifi set-scan-always-available enabled
+cmd voiceinteraction  set-debug-hotword-logging true
+cmd input_method tracing start
+cmd connectivity set-chain3-enabled true
+cmd wifi set-scan-always-available enabled
+cmd wifi set-verbose-logging enabled
+cmd display set-user-disabled-hdr-types 0
+cmd display ab-logging-enable
+cmd display dmd-logging-enable
+cmd display dwb-logging-enable
+cmd greezer debug true
+cmd greezer enable true
+dumpsys batterystats --reset
+dumpsys batterystats --reset-all
+dumpsys batterystats enable full-history
+dumpsys batterystats enable no-auto-reset
+dumpsys batterystats enable pretend-screen-off
+cmd print set-bind-instant-service-allowed false
+cmd autofill set bind-instant-service-allowed true
+cmd autofill set default-augmented-service-enabled 0 true
+cmd content_capture set bind-instant-service-allowed true
+cmd content_capture set default-service-enabled 0 true
+cmd migard dump-trace true
+cmd migard start-trace true
+cmd migard stop-trace false
+cmd migard trace-buffer-size 0
+cmd miui_step_counter_service disable
+cmd miui_step_counter_service logging-enable
+cmd miui_step_counter_service set-delay 999999999
+settings put global cached_apps_freezer 0
+settings put system haptic_feedback_disable 0
+settings put secure screensaver_activate_on_dock 1
+settings put secure screensaver_enabled 1
+settings delete global dropbox_age_seconds
+settings delete global dropbox_max_files
+settings put global binder_calls_stats ""
+settings put system device_idle_constants ""
+settings put global activity_manager_constants ""
+
+echo Uninstall Finished

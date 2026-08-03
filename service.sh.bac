@@ -1,0 +1,270 @@
+#!/system/bin/sh
+while [ -z "$(getprop sys.boot_completed)" ]; do
+	sleep 5
+done
+
+resetprop -n logcat.live disable
+resetprop -n ro.kernel.checkjni 0
+resetprop -n ro.kernel.android.checkjni 0
+resetprop -n persist.android.strictmode 0
+resetprop -n sys.wifitracing.started 0
+resetprop -n debug.tracing.battery_stats.wifi 0
+resetprop -n ro.config.nocheckin 1
+resetprop -n ro.ril.disable.power.collapse 0
+resetprop -n ro.qti.sensors.pedometer false
+resetprop -n ro.qti.sensors.step_counter false
+resetprop -n ro.qti.sensors.step_detector false
+resetprop -n ro.qti.sensors.facing false
+resetprop -n ro.qti.sensors.pick_up false
+resetprop -n debug.mdpcomp.logs 0
+resetprop -n debugtool.anrhistory 0
+resetprop -n persist.brcm.ap_crash none
+resetprop -n persist.brcm.cp_crash none
+resetprop -n persist.brcm.log none
+#resetprop -n persist.radio.adb_log_on 0
+resetprop -n persist.sys.qc.sub.rdump.on 0
+resetprop -n profiler.debugmonitor false
+resetprop -n profiler.hung.dumpdobugreport false
+resetprop -n profiler.launch false
+#resetprop -n ro.product_ship true
+resetprop -n persist.ims.disableDebugLogs 1
+resetprop -n wifi.supplicant_scan_interval 1200
+resetprop -n debug.miui.perf.inspector 0
+resetprop -n debug.incremental.always_enable_read_timeouts_for_system_dataloaders 0 
+resetprop -n debug.incremental.enforce_readlogs_max_interval_for_system_dataloaders 0
+resetprop -n persist.sys.fuse.passthrough.enable true
+
+current_props="$(getprop | cut -f1 -d ']')"
+eval "$(echo "$current_props" | grep -F '[log.tag' | sed 's/\[/setprop persist./g' | sed 's/$/ S/g')"
+eval "$(echo "$current_props" | grep -F '[persist.log.tag' | sed 's/\[persist./setprop /g' | sed 's/$/ S/g')"
+eval "$(echo "$current_props" | grep 'log.tag' | sed 's/\[/setprop /g' | sed 's/$/ S/g')"
+
+#for a in $(cmd package list packages -s|cut -f2 -d:);do cmd deviceidle whitelist -"$a";done
+#for a in $(cmd package list packages -3|cut -f2 -d:);do cmd deviceidle whitelist +"$a";done
+#cmd deviceidle enable all
+#cmd deviceidle force-idle deep
+#cmd deviceidle step deep
+
+for f in $(dumpsys window | grep "^  Proto:" | sed 's/^  Proto: //' | tr ' ' '\n'; dumpsys window | grep "^  Logcat:" | sed 's/^  Logcat: //' | tr ' ' '\n'); 
+do wm logging disable "$f"; wm logging disable-text "$f"; done
+cmd window logging stop
+
+#device_config put activity_manager activity_start_pss_defer 999999999999999999
+device_config put telephony max_logcat_lines 0
+device_config put telephony max_logcat_lines_low_mem 0
+device_config put activity_manager_native_boot use_freezer true
+device_config put activity_manager use_compaction true
+device_config set_sync_disabled_for_tests persistent
+
+bmgr cancel backups
+bmgr enable 0
+cmd activity fgs-notification-rate-limit enable
+cmd activity idle-maintenance
+cmd activity set-deterministic-uid-idle true
+cmd activity untrack-associations
+cmd audio reset-sound-dose-timeout
+cmd audio set-ringer-mode SILENT
+cmd autofill destroy sessions
+cmd autofill reset
+cmd autofill set max_partitions 0
+cmd autofill set max_visible_datasets 0
+#cmd battery reset
+#cmd binder_calls_stats --disable
+cmd binder_calls_stats --disable-detailed-tracking
+#cmd binder_calls_stats --reset
+cmd blob_store idle-maintenance
+cmd connectivity set-chain3-enabled false
+cmd content reset-today-stats
+cmd content_capture destroy sessions
+cmd content_capture set bind-instant-service-allowed false
+cmd content_capture set default-service-enabled 0 false
+cmd devicestoragemonitor force-not-low
+cmd display set-user-disabled-hdr-types 1 2 3 4
+cmd greezer enable false
+cmd greezer unmonitor 0
+cmd jobscheduler trigger-dock-state idle
+cmd location_time_zone_manager stop
+cmd looper_stats reset
+cmd looper_stats disable
+cmd media.camera watch stop
+cmd media_session dispatch stop
+cmd miui.downscale disable-downscale true
+cmd miui.downscale set-debug-mode false
+cmd miui_step_counter_service disable
+cmd miui_step_counter_service trim-all
+cmd network_time_update_service reset_server_config_for_tests
+cmd package set-silent-updates-policy --throttle-time "$(echo 2^62|bc)"
+cmd power set-face-down-detector false
+cmd print set-bind-instant-service-allowed false
+cmd role set-bypassing-role-qualification false
+cmd sdk_sandbox set-state --reset
+cmd shortcut reset-all-throttling
+cmd shortcut reset-config
+cmd shortcut unload-user
+cmd time_zone_detector set_auto_detection_enabled true;cmd time_zone_detector set_auto_detection_enabled false
+cmd wearable_sensing destroy-data-stream
+cmd wifi reset-connected-score
+cmd wifi set-connected-score 60
+cmd wifi set-ipreach-disconnect disabled
+cmd wifi set-network-selection-config disabled enabled -a 0
+cmd wifi set-network-selection-config enabled disabled -a 0
+#cmd wifi set-scan-always-available disabled
+#dumpsys batterystats --reset
+#dumpsys batterystats --reset-all
+#dumpsys batterystats disable full-history
+#dumpsys batterystats disable no-auto-reset
+#dumpsys batterystats disable pretend-screen-off
+dumpsys procstats --stop-pretend-screen
+dumpsys procstats --stop-testing
+mdi_redirector_ctrl --leave-testing-mode
+mdi_redirector_ctrl --set-payload-size 0
+mdi_redirector_ctrl --stop-monitor
+
+#logcat -P "$(pgrep *|sed 's/^/~/g')"
+
+#stop dmesgd
+stop heapprofd
+stop incidentd
+stop mobile_log_d
+#stop statsd
+stop tombstoned
+stop traced
+stop idd-logreader
+stop idd-logreadermain
+stop stats
+stop dumpstate
+stop vendor.tcpdump
+stop vendor_tcpdump
+stop vendor.cnss_diag
+stop tombstoned
+stop tcpdump
+stop cnss_diag
+
+for cpuctl in /dev/cpuctl/;do
+echo "2" > $cpuctl/background/cpu.shares
+echo "2" > $cpuctl/system-background/cpu.shares
+echo "2" > $cpuctl/system/cpu.shares
+echo "2" > $cpuctl/camera-daemon/cpu.shares
+echo "2" > $cpuctl/nnapi-hal/cpu.shares
+echo "2" > $cpuctl/dex2oat/cpu.shares
+done
+
+for cpuidle in /dev/stune;do
+echo "1" > $cpuidle/background/schedtune.prefer_idle
+echo "1" > $cpuidle/camera-daemon/schedtune.prefer_idle
+echo "1" > $cpuidle/nnapi-hal/schedtune.prefer_idle
+done
+
+for cpuset in /dev/cpuset;do
+echo "1" > $cpuset/background/sched_relax_domain_level
+echo "1" > $cpuset/restricted/sched_relax_domain_level
+echo "2" > $cpuset/camera-daemon/sched_relax_domain_level
+echo "2" > $cpuset/system-background/sched_relax_domain_level
+echo "3" > $cpuset/foreground/sched_relax_domain_level
+echo "3" > $cpuset/top-app/sched_relax_domain_level
+done
+
+for gc in /dev/sys/fs/by-name/userdata/;do
+echo "1" > $gc/gc_idle
+done
+
+for blkio in /dev/blkio/;do
+echo "1" > $blkio/blkio.group_idle
+echo "1" > $blkio/background/blkio.group_idle
+echo "1" > $blkio/background/blkio.weight
+done
+
+#rm -rf /data/vendor/wlan_logs
+#touch /data/vendor/wlan_logs
+#chmod 000 /data/vendor/wlan_logs
+
+for a in $(ps|grep ^root|awk '{print $2}');do ionice -c 3 -n 7 -p "$a";iorenice "$a" 7 idle;renice -n 19 -p "$a"&&echo Success: "$a"||echo Failed: "$a";done 2>/dev/null
+
+busybox fstrim -v /system
+busybox fstrim -v /vendor
+busybox fstrim -v /system_ext
+
+echo
+echo "Tweak Packages"
+echo
+
+# First loop: System and user packages
+for a in $(cmd package list packages -s --all-users | cut -d ":" -f2); do
+	for user_id in $(pm list users | cut -d "{" -f2 | cut -d ":" -f1); do
+		echo "User ID: ${user_id}"
+		echo "Tweak Package: ${a}"
+		
+		# Kill app process
+		am kill ${a}
+		#am kill-all
+		
+		# Set background restrictions
+		am service-restart-backoff disable ${a}
+		am set-bg-restriction-level --user 0 ${a} hibernation
+		am set-foreground-service-delegate --user 0 ${a} stop
+		
+		# Ignore app and set inactive
+		am set-ignore-delivery-group-policy ${a}
+		am set-inactive --user ${user_id} ${a} true
+		am set-standby-bucket ${a} restricted
+		
+		# Clear logs and disable visibility
+		logcat -c
+		pm log-visibility ${a} --disable
+		
+		# Fix security issues (revoke permissions)
+		pm revoke ${a} android.permission.ACCESS_WIFI_STATE
+		pm revoke ${a} android.permission.BODY_SENSORS
+		pm revoke ${a} android.permission.ACCESS_BACKGROUND_LOCATION
+		
+		# Permanently block permission (Android 10+)
+		if [[ "$a" != "com.android."* && "$a" != "com.google.android."* ]]; then
+			pm revoke "$a" android.permission.ACCESS_WIFI_STATE
+		fi
+		done
+done
+
+# Second loop: All packages (including user apps)
+for a in $(cmd package list packages --all-users | cut -d ":" -f2); do
+	for user_id in $(pm list users | cut -d "{" -f2 | cut -d ":" -f1); do
+	echo "User ID: ${user_id}"
+	echo "Tweak Package: ${a}"
+
+	# Kill app process
+	am kill ${a}
+	#am kill-all
+
+	# Set background restrictions
+	am service-restart-backoff disable ${a}
+	am set-bg-restriction-level --user 0 ${a} hibernation
+	am set-foreground-service-delegate --user 0 ${a} stop
+
+	# Ignore app and set inactive
+	am set-ignore-delivery-group-policy ${a}
+	am set-inactive --user ${user_id} ${a} true
+	am set-standby-bucket ${a} restricted
+
+	# Clear logs and disable visibility
+	logcat -c
+	pm log-visibility ${a} --disable
+
+	# Fix security issues (revoke permissions)
+	pm revoke ${a} android.permission.ACCESS_WIFI_STATE
+	pm revoke ${a} android.permission.BODY_SENSORS
+	pm revoke ${a} android.permission.ACCESS_BACKGROUND_LOCATION
+
+	# Permanently block permission (Android 10+)
+	if [[ "$a" != "com.android."* && "$a" != "com.google.android."* ]]; then
+	pm revoke "$a" android.permission.ACCESS_WIFI_STATE
+	fi
+	done
+done
+
+resetprop -n logcat.live enable 
+echo
+echo "Finishing APP Tweaking!"
+echo
+
+am kill-all
+
+echo Service running!
