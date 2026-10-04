@@ -1,268 +1,155 @@
 #!/system/bin/sh
-# Wait for system boot to complete
-while [ -z "$(getprop sys.boot_completed)" ]; do
+# BlueAngel-SE Module - Optimized System Tweaks
+# Version: 1.0
+
+# Wait for boot completion (with timeout)
+timeout=12
+while [ -z "$(getprop sys.boot_completed)" ] && [ $timeout -gt 0 ]; do
     sleep 5
+    timeout=$((timeout - 1))
 done
 
-# =============================================
-# SYSTEM & PERFORMANCE OPTIMIZATIONS
-# =============================================
+# Basic logging function
+LOG_DIR="/data/adb/batteryblueangel-se"
+LOG_FILE="$LOG_DIR/batteryblueangel-se.log"
 
-# Disable unnecessary logging and debug features
-resetprop -n logcat.live disable
-resetprop -n ro.kernel.checkjni 0
-resetprop -n ro.kernel.android.checkjni 0
-resetprop -n persist.android.strictmode 0
-resetprop -n sys.wifitracing.started 0
-resetprop -n debug.tracing.battery_stats.wifi 0
-resetprop -n ro.config.nocheckin 1
-resetprop -n ro.ril.disable.power.collapse 0
+mkdir -p "$LOG_DIR" || exit 1
+chown 0:2000 "$LOG_DIR"
+chmod 0770 "$LOG_DIR"
 
-# Disable Qualcomm sensor logging (if not needed)
-resetprop -n ro.qti.sensors.pedometer false
-resetprop -n ro.qti.sensors.step_counter false
-resetprop -n ro.qti.sensors.step_detector false
-resetprop -n ro.qti.sensors.facing false
-resetprop -n ro.qti.sensors.pick_up false
+if [ ! -f "$LOG_FILE" ]; then
+    touch "$LOG_FILE" || exit 1
+    chmod 600 "$LOG_FILE"
+fi
+chown 0:2000 "$LOG_FILE"
+chmod 0660 "$LOG_FILE"
 
-# Disable debug and crash logs
-resetprop -n debug.mdpcomp.logs 0
-resetprop -n debugtool.anrhistory 0
-resetprop -n persist.brcm.ap_crash none
-resetprop -n persist.brcm.cp_crash none
-resetprop -n persist.brcm.log none
-resetprop -n persist.sys.qc.sub.rdump.on 0
-resetprop -n profiler.debugmonitor false
-resetprop -n profiler.hung.dumpdobugreport false
-resetprop -n profiler.launch false
-resetprop -n persist.ims.disableDebugLogs 1
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE" 2>/dev/null
+    echo "$1"
+}
 
-# WiFi optimizations
-resetprop -n wifi.supplicant_scan_interval 1200  # Reduce WiFi scanning frequency
+log "=== BlueAngel-SE Module Started ==="
 
-# MIUI-specific optimizations
-resetprop -n debug.miui.perf.inspector 0
+# System optimizations with error handling
+log "Applying system optimizations..."
 
-# Disable incremental build optimizations (if not needed)
-resetprop -n debug.incremental.always_enable_read_timeouts_for_system_dataloaders 0
-resetprop -n debug.incremental.enforce_readlogs_max_interval_for_system_dataloaders 0
+safe_settings_put() {
+    local key="$1"
+    local value="$2"
+    local success_msg="$3"
+    local error_msg="$4"
+    
+    if settings put "$key" "$value" 2>/dev/null; then
+        log "$success_msg"
+        return 0
+    else
+        log "$error_msg"
+        return 1
+    fi
+}
 
-# Enable FUSE passthrough for better I/O performance
-resetprop -n persist.sys.fuse.passthrough.enable true
+apply_optimizations() {
+    safe_settings_put "system k2hd_effect" "1" "Enabled k2hd_effect" "Failed to enable k2hd_effect"
+    safe_settings_put "system tube_amp_effect" "1" "Enabled tube_amp_effect" "Failed to enable tube_amp_effect"
+    safe_settings_put "system dolby_enable" "1" "Enabled dolby_effect" "Failed to enable dolby_effect"
+    safe_settings_put "global disable_window_blurs" "1" "Disabled window blurs" "Failed to disable window blurs"
+    safe_settings_put "global accessibility_reduce_transparency" "1" "Reduced transparency" "Failed to reduce transparency"
+    safe_settings_put "secure long_press_timeout" "250" "Set long_press_timeout to 250ms" "Failed to set long_press_timeout"
+    safe_settings_put "secure multi_press_timeout" "250" "Set multi_press_timeout to 250ms" "Failed to set multi_press_timeout"
+    safe_settings_put "secure tap_duration_threshold" "0.0" "Set tap_duration_threshold to 0.0" "Failed to set tap_duration_threshold"
+    safe_settings_put "secure touch_blocking_period" "0.0" "Set touch_blocking_period to 0.0" "Failed to set touch_blocking_period"
+    
+    if setprop debug.force-opengl 1 2>/dev/null; then
+        log "Forced OpenGL rendering"
+    else
+        log "Failed to force OpenGL rendering"
+    fi
+    
+    safe_settings_put "system multicore_packet_scheduler" "1" "Enabled multicore packet scheduler" "Failed to enable multicore packet scheduler"
+    safe_settings_put "global sem_enhanced_cpu_responsiveness" "1" "Enabled CPU responsiveness enhancement" "Failed to enable CPU responsiveness enhancement"
+}
 
-# =============================================
-# LOGGING & DIAGNOSTIC CLEANUP
-# =============================================
+apply_optimizations || log "Some optimizations failed but continuing..."
+log "System optimizations completed"
 
-# Extract and disable log tags
-current_props="$(getprop | cut -f1 -d ']')"
-eval "$(echo "$current_props" | grep -F '[log.tag' | sed 's/\[/setprop persist./g' | sed 's/$/ S/g')"
-eval "$(echo "$current_props" | grep -F '[persist.log.tag' | sed 's/\[persist./setprop /g' | sed 's/$/ S/g')"
-eval "$(echo "$current_props" | grep 'log.tag' | sed 's/\[/setprop /g' | sed 's/$/ S/g')"
+# Permission management functions
+revoke_permission() {
+    local package_name="$1"
+    local permission="$2"
+    local user="$3"
+    
+    log "Revoking $permission for: $package_name (User $user)"
+    cmd appops set --user "$user" "$package_name" "$permission" ignore 2>/dev/null || log "Failed to revoke $permission for $package_name"
+}
 
-# Disable window logging (reduces overhead)
-for f in $(dumpsys window | grep "^  Proto:" | sed 's/^  Proto: //' | tr ' ' '\n'; \
-           dumpsys window | grep "^  Logcat:" | sed 's/^  Logcat: //' | tr ' ' '\n'); do
-    wm logging disable "$f"
-    wm logging disable-text "$f"
-done
-cmd window logging stop
+disable_run_in_background() {
+    revoke_permission "$1" "RUN_IN_BACKGROUND" "$2"
+}
 
-# =============================================
-# DEVICE CONFIG & SERVICE OPTIMIZATIONS
-# =============================================
-
-# Disable backup manager and telephony logging
-device_config put activity_manager activity_start_pss_defer 999999999999999999
-device_config put telephony max_logcat_lines 0
-device_config put telephony max_logcat_lines_low_mem 0
-device_config put activity_manager_native_boot use_freezer true
-device_config put activity_manager use_compaction true
-device_config set_sync_disabled_for_tests persistent
-
-# Disable backup services
-bmgr cancel backups
-bmgr enable 0
-
-# Disable foreground service notifications and idle maintenance
-cmd activity fgs-notification-rate-limit enable
-cmd activity idle-maintenance
-cmd activity set-deterministic-uid-idle true
-cmd activity untrack-associations
-
-# Audio optimizations
-cmd audio reset-sound-dose-timeout
-cmd audio set-ringer-mode SILENT
-
-# Disable autofill and content capture
-cmd autofill destroy sessions
-cmd autofill reset
-cmd autofill set max_partitions 0
-cmd autofill set max_visible_datasets 0
-cmd content_capture destroy sessions
-cmd content_capture set bind-instant-service-allowed false
-cmd content_capture set default-service-enabled 0 false
-
-# Storage and battery optimizations
-cmd devicestoragemonitor force-not-low
-cmd display set-user-disabled-hdr-types 1 2 3 4
-cmd greezer enable false
-cmd greezer unmonitor 0
-
-# Disable location and time updates
-cmd location_time_zone_manager stop
-cmd network_time_update_service reset_server_config_for_tests
-
-# Disable silent updates throttling (for faster updates)
-cmd package set-silent-updates-policy --throttle-time "$(echo 2^62|bc)"
-
-# Disable face-down detection and print services
-cmd power set-face-down-detector false
-cmd print set-bind-instant-service-allowed false
-
-# Disable role qualification and SDK sandbox
-cmd role set-bypassing-role-qualification false
-cmd sdk_sandbox set-state --reset
-
-# Disable shortcut throttling and reset config
-cmd shortcut reset-all-throttling
-cmd shortcut reset-config
-cmd shortcut unload-user
-
-# Disable time zone auto-detection (if not needed)
-cmd time_zone_detector set_auto_detection_enabled true
-cmd time_zone_detector set_auto_detection_enabled false
-
-# Disable wearable sensing and WiFi optimizations
-cmd wearable_sensing destroy-data-stream
-cmd wifi reset-connected-score
-cmd wifi set-connected-score 60
-cmd wifi set-ipreach-disconnect disabled
-cmd wifi set-network-selection-config disabled enabled -a 0
-cmd wifi set-network-selection-config enabled disabled -a 0
-
-# =============================================
-# PROCESS & SERVICE MANAGEMENT
-# =============================================
-
-# Stop unnecessary system services
-stop heapprofd
-stop incidentd
-stop mobile_log_d
-stop tombstoned
-stop traced
-stop idd-logreader
-stop idd-logreadermain
-stop stats
-stop dumpstate
-stop vendor.tcpdump
-stop vendor_tcpdump
-stop vendor.cnss_diag
-stop tcpdump
-stop cnss_diag
-
-# =============================================
-# CPU & SCHEDULER OPTIMIZATIONS
-# =============================================
-
-# Adjust CPU shares for background processes
-for cpuctl in /dev/cpuctl/; do
-    echo "2" > "$cpuctl/background/cpu.shares"
-    echo "2" > "$cpuctl/system-background/cpu.shares"
-    echo "2" > "$cpuctl/system/cpu.shares"
-    echo "2" > "$cpuctl/camera-daemon/cpu.shares"
-    echo "2" > "$cpuctl/nnapi-hal/cpu.shares"
-    echo "2" > "$cpuctl/dex2oat/cpu.shares"
-done
-
-# Enable prefer_idle for background tasks
-for cpuidle in /dev/stune; do
-    echo "1" > "$cpuidle/background/schedtune.prefer_idle"
-    echo "1" > "$cpuidle/camera-daemon/schedtune.prefer_idle"
-    echo "1" > "$cpuidle/nnapi-hal/schedtune.prefer_idle"
-done
-
-# Adjust scheduler relax domain levels
-for cpuset in /dev/cpuset; do
-    echo "1" > "$cpuset/background/sched_relax_domain_level"
-    echo "1" > "$cpuset/restricted/sched_relax_domain_level"
-    echo "2" > "$cpuset/camera-daemon/sched_relax_domain_level"
-    echo "2" > "$cpuset/system-background/sched_relax_domain_level"
-    echo "3" > "$cpuset/foreground/sched_relax_domain_level"
-    echo "3" > "$cpuset/top-app/sched_relax_domain_level"
-done
-
-# Disable garbage collection for userdata
-for gc in /dev/sys/fs/by-name/userdata/; do
-    echo "1" > "$gc/gc_idle"
-done
-
-# Adjust block I/O idle settings
-for blkio in /dev/blkio/; do
-    echo "1" > "$blkio/blkio.group_idle"
-    echo "1" > "$blkio/background/blkio.group_idle"
-    echo "1" > "$blkio/background/blkio.weight"
-done
-
-# =============================================
-# FILE SYSTEM OPTIMIZATIONS
-# =============================================
-
-# Run fstrim to optimize storage
-busybox fstrim -v /system
-busybox fstrim -v /vendor
-busybox fstrim -v /system_ext
-
-# =============================================
-# APP OPTIMIZATIONS (USER & SYSTEM APPS)
-# =============================================
-
-echo
-echo "=== APP TWEAKS ==="
-echo
-
-# Loop through all installed packages (system and user)
-for a in $(cmd package list packages --all-users | cut -d ":" -f2); do
-    for user_id in $(pm list users | cut -d "{" -f2 | cut -d ":" -f1); do
-        echo "Processing app: $a (User: $user_id)"
-
-        # Kill app process
-        am kill "$a" 2>/dev/null
-
-        # Set background restrictions (hibernation mode)
-        am service-restart-backoff disable "$a" 2>/dev/null
-        am set-bg-restriction-level --user "$user_id" "$a" hibernation 2>/dev/null
-        am set-foreground-service-delegate --user "$user_id" "$a" stop 2>/dev/null
-
-        # Ignore app and set to inactive
-        am set-ignore-delivery-group-policy "$a" 2>/dev/null
-        am set-inactive --user "$user_id" "$a" true 2>/dev/null
-        am set-standby-bucket "$a" restricted 2>/dev/null
-
-        # Clear logs and disable visibility
-        logcat -c 2>/dev/null
-        pm log-visibility "$a" --disable 2>/dev/null
-
-        # Revoke unnecessary permissions (WiFi, sensors, location)
-        pm revoke "$a" android.permission.ACCESS_WIFI_STATE 2>/dev/null
-        pm revoke "$a" android.permission.BODY_SENSORS 2>/dev/null
-        pm revoke "$a" android.permission.ACCESS_BACKGROUND_LOCATION 2>/dev/null
-
-        # Permanently block WiFi permission for non-system apps
-        if [[ "$a" != "com.android."* && "$a" != "com.google.android."* ]]; then
-            pm revoke "$a" android.permission.ACCESS_WIFI_STATE 2>/dev/null
-        fi
+disable_network_leaks() {
+    local network_permissions="CHANGE_NETWORK_STATE ACCESS_WIFI_STATE CHANGE_WIFI_STATE READ_SYNC_SETTINGS WRITE_SYNC_SETTINGS ACCESS_BACKGROUND_LOCATION BLUETOOTH_SCAN BLUETOOTH_ADVERTISE NEARBY_WIFI_DEVICES UWB_RANGING ACCESS_NETWORK_STATE BLUETOOTH_CONNECT"
+    for perm in $network_permissions; do
+        revoke_permission "$1" "$perm" "$2"
     done
+}
+
+disable_phone_leaks() {
+    local phone_permissions="ANSWER_PHONE_CALLS READ_PHONE_STATE READ_PHONE_NUMBERS MODIFY_PHONE_STATE READ_PRIVILEGED_PHONE_STATE READ_CALL_LOG SEND_SMS WRITE_CALL_LOG READ_SMS WRITE_CALENDAR WRITE_CONTACTS ADD_VOICEMAIL PROCESS_OUTGOING_CALLS RECEIVE_SMS RECEIVE_WAP_PUSH MANAGE_OWN_CALLS"
+    for perm in $phone_permissions; do
+        revoke_permission "$1" "$perm" "$2"
+    done
+}
+
+disable_sensor_permission() {
+    local sensor_permissions="ACTIVITY_RECOGNITION BODY_SENSORS BODY_SENSORS_BACKGROUND SENSORS USE_BIOMETRIC"
+    for perm in $sensor_permissions; do
+        revoke_permission "$1" "$perm" "$2"
+    done
+}
+
+# Package processing function
+process_user_apps() {
+    local user="$1"
+    log "=== Scanning User: $user ==="
+    
+    local tmp_dir="/data/local/tmp/blueangel_$user"
+    mkdir -p "$tmp_dir"
+    
+    cmd package list packages --user "$user" 2>/dev/null | sed 's/package://' | sort > "$tmp_dir/all.txt"
+    cmd package list packages --user "$user" -s 2>/dev/null | sed 's/package://' | sort > "$tmp_dir/sys.txt"
+    cmd package list packages --user "$user" -3 2>/dev/null | sed 's/package://' | sort > "$tmp_dir/third.txt"
+    
+    comm -23 "$tmp_dir/all.txt" "$tmp_dir/sys.txt" | comm -23 - "$tmp_dir/third.txt" > "$tmp_dir/sysuser.txt"
+    
+    while read -r package; do
+        [ -n "$package" ] || continue
+        disable_network_leaks "$package" "$user"
+        disable_phone_leaks "$package" "$user"
+        disable_sensor_permission "$package" "$user"
+    done < "$tmp_dir/sysuser.txt"
+    
+    while read -r package; do
+        [ -n "$package" ] || continue
+        disable_sensor_permission "$package" "$user"
+    done < "$tmp_dir/sys.txt"
+    
+    while read -r package; do
+        [ -n "$package" ] || continue
+        disable_run_in_background "$package" "$user"
+        disable_network_leaks "$package" "$user"
+        disable_phone_leaks "$package" "$user"
+        disable_sensor_permission "$package" "$user"
+    done < "$tmp_dir/third.txt"
+    
+    rm -rf "$tmp_dir"
+}
+
+# Main execution loop
+log "=== BlueAngel-SE Tweak all User Apps ==="
+for user in $(cmd package list users 2>/dev/null | awk -F'[{:]' '{print $2}' | grep -E '^[0-9]+$'); do
+    log "Processing User: $user"
+    process_user_apps "$user" || log "Failed to process user $user"
 done
 
-# =============================================
-# FINAL CLEANUP & STATUS
-# =============================================
-
-# Re-enable logcat.live (optional, for debugging)
-resetprop -n logcat.live enable
-
-echo
-echo "=== OPTIMIZATIONS COMPLETE ==="
-echo "All apps and services have been optimized for performance."
-echo
+log "=== BlueAngel-SE Module Completed ==="
